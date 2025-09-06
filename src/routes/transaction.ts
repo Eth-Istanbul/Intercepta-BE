@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { TransactionDecoder } from '../utils/txDecoder';
+import { TransactionAnalyzer } from '../utils/transactionAnalyzer';
 import { fetchContractAbi } from '../utils/abi';
 import { DecodedTransaction } from '../utils/types';
 
@@ -12,7 +13,79 @@ function jsonSafe<T>(value: T): T {
 }
 
 /**
- * Decode a raw transaction
+ * Analyze a raw transaction
+ * POST /tx/analyze
+ * Body: { rawTx: "0x..." }
+ */
+router.post('/tx/analyze', async (req: Request, res: Response) => {
+    try {
+        const { rawTx } = req.body;
+
+        // Input validation
+        if (!rawTx) {
+            return res.status(400).json({
+                success: false,
+                error: 'rawTx is required',
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        if (typeof rawTx !== 'string') {
+            return res.status(400).json({
+                success: false,
+                error: 'rawTx must be a string',
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        if (!TransactionDecoder.isValidRawTransaction(rawTx)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid raw transaction format',
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        console.log('Analyzing transaction:', rawTx.slice(0, 20) + '...');
+
+        // Use the new analyzer
+        const result = await TransactionAnalyzer.analyzeTransaction(rawTx);
+
+        if (!result.success) {
+            return res.status(500).json(result);
+        }
+
+        // Add formatted values for better readability
+        const formattedTransaction = {
+            ...result.transaction,
+            valueFormatted: TransactionDecoder.formatValue(result.transaction.value),
+            gasPriceFormatted: result.transaction.gasPrice ? TransactionDecoder.formatGasPrice(result.transaction.gasPrice) : undefined,
+            maxFeePerGasFormatted: result.transaction.maxFeePerGas ? TransactionDecoder.formatGasPrice(result.transaction.maxFeePerGas) : undefined,
+            maxPriorityFeePerGasFormatted: result.transaction.maxPriorityFeePerGas ? TransactionDecoder.formatGasPrice(result.transaction.maxPriorityFeePerGas) : undefined,
+            transactionTypeFormatted: TransactionDecoder.getTransactionType(result.transaction.type),
+            transactionTypeNumber: TransactionDecoder.getTransactionTypeNumber(result.transaction.type),
+        };
+
+        console.log('Transaction analyzed successfully:', result.analysis.type);
+
+        res.json({
+            ...result,
+            transaction: formattedTransaction
+        });
+
+    } catch (error) {
+        console.error('Transaction analysis error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to analyze transaction',
+            details: error instanceof Error ? error.message : 'Unknown error',
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+
+/**
+ * Decode a raw transaction (legacy endpoint for backward compatibility)
  * POST /tx/decode
  * Body: { rawTx: "0x..." }
  */
@@ -82,7 +155,7 @@ router.get('/tx/types', (req: Request, res: Response) => {
     });
 });
 
-router.post('/tx/rpc', (req: Request, res: Response) => {
+router.post('/tx/rpc', async (req: Request, res: Response) => {
     try {
         const payload = req.body as {
             id?: string;
@@ -99,80 +172,58 @@ router.post('/tx/rpc', (req: Request, res: Response) => {
 
         const tx = payload?.params && payload.params[0] ? payload.params[0] : undefined;
         if (!tx) {
-            return res.status(400).json({ error: 'Missing params[0] transaction object' });
+            return res.status(400).json({
+                success: false,
+                error: 'Missing params[0] transaction object',
+                timestamp: new Date().toISOString()
+            });
         }
 
-        let methodInfo = tx.data ? TransactionDecoder.decodeFunctionData(tx.data) : undefined;
-        try {
-            if (tx.data && tx.to && tx.chainId) {
-                const chainIdNum = typeof tx.chainId === 'string' && tx.chainId.startsWith('0x')
-                    ? parseInt(tx.chainId, 16)
-                    : Number(tx.chainId);
-                const apiKey = process.env.ETHERSCAN_API_KEY;
-                if (apiKey) {
-                    fetchContractAbi(chainIdNum, tx.to, apiKey)
-                        .then((abi) => {
-                            const viaAbi = TransactionDecoder.decodeWithAbi(tx.data as string, abi);
-                            if (viaAbi) {
-                                methodInfo = viaAbi;
-                            }
-                            return res.json(jsonSafe({
-                                id: payload.id,
-                                method: payload.method,
-                                transaction: {
-                                    chainId: tx.chainId,
-                                    gas: tx.gas,
-                                    value: tx.value,
-                                    from: tx.from,
-                                    to: tx.to,
-                                    data: tx.data,
-                                    decodedData: methodInfo,
-                                    valueFormatted: tx.value ? TransactionDecoder.formatValue(tx.value) : undefined,
-                                },
-                                timestamp: new Date().toISOString()
-                            }));
-                        })
-                        .catch((e) => {
-                            console.warn('ABI fetch failed:', e);
-                            return res.json(jsonSafe({
-                                id: payload.id,
-                                method: payload.method,
-                                transaction: {
-                                    chainId: tx.chainId,
-                                    gas: tx.gas,
-                                    value: tx.value,
-                                    from: tx.from,
-                                    to: tx.to,
-                                    data: tx.data,
-                                    decodedData: methodInfo,
-                                    valueFormatted: tx.value ? TransactionDecoder.formatValue(tx.value) : undefined,
-                                },
-                                timestamp: new Date().toISOString()
-                            }));
-                        });
-                    return; // response will be sent in promise handlers
-                }
-            }
-        } catch { }
+        console.log('Analyzing RPC transaction:', tx.to ? `${tx.to.slice(0, 10)}...` : 'contract creation');
+
+        // Use the new analyzer for RPC transactions
+        const result = await TransactionAnalyzer.analyzeRpcTransaction(tx);
+
+        if (!result.success) {
+            return res.status(500).json({
+                id: payload.id,
+                method: payload.method,
+                success: false,
+                error: result.error,
+                timestamp: result.timestamp
+            });
+        }
+
+        // Add formatted values for better readability
+        const formattedTransaction = {
+            ...result.transaction,
+            valueFormatted: TransactionDecoder.formatValue(result.transaction.value),
+            gasPriceFormatted: result.transaction.gasPrice ? TransactionDecoder.formatGasPrice(result.transaction.gasPrice) : undefined,
+            maxFeePerGasFormatted: result.transaction.maxFeePerGas ? TransactionDecoder.formatGasPrice(result.transaction.maxFeePerGas) : undefined,
+            maxPriorityFeePerGasFormatted: result.transaction.maxPriorityFeePerGas ? TransactionDecoder.formatGasPrice(result.transaction.maxPriorityFeePerGas) : undefined,
+            transactionTypeFormatted: TransactionDecoder.getTransactionType(result.transaction.type),
+            transactionTypeNumber: TransactionDecoder.getTransactionTypeNumber(result.transaction.type),
+        };
+
+        console.log('RPC transaction analyzed successfully:', result.analysis.type);
 
         return res.json(jsonSafe({
             id: payload.id,
             method: payload.method,
-            transaction: {
-                chainId: tx.chainId,
-                gas: tx.gas,
-                value: tx.value,
-                from: tx.from,
-                to: tx.to,
-                data: tx.data,
-                decodedData: methodInfo,
-                valueFormatted: tx.value ? TransactionDecoder.formatValue(tx.value) : undefined,
-            },
-            timestamp: new Date().toISOString()
+            success: true,
+            transaction: formattedTransaction,
+            analysis: result.analysis,
+            timestamp: result.timestamp
         }));
+
     } catch (error) {
         console.error('RPC payload parse error:', error);
-        return res.status(400).json({ error: 'Invalid JSON-RPC payload', details: error instanceof Error ? error.message : 'Unknown error' });
+        return res.status(400).json({
+            success: false,
+            error: 'Invalid JSON-RPC payload',
+            details: error instanceof Error ? error.message : 'Unknown error',
+            timestamp: new Date().toISOString()
+        });
     }
 });
 

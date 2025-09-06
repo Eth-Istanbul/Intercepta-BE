@@ -1,4 +1,4 @@
-import { parseTransaction, formatEther, formatGwei, isAddress, keccak256, decodeFunctionData } from 'viem';
+import { parseTransaction, formatEther, formatGwei, isAddress, keccak256, decodeFunctionData, isHex } from 'viem';
 import type { Abi } from 'viem';
 import { DecodedTransaction } from './types';
 
@@ -8,6 +8,9 @@ export class TransactionDecoder {
         try {
             const txHex = (rawTx.startsWith('0x') ? rawTx : `0x${rawTx}`) as `0x${string}`;
             const tx = parseTransaction(txHex);
+
+            // Determine transaction type
+            const transactionType = this.determineTransactionType(tx);
 
             const decoded: DecodedTransaction = {
                 hash: keccak256(txHex),
@@ -21,6 +24,8 @@ export class TransactionDecoder {
                 chainId: tx.chainId ?? 0,
                 isContractCreation: !tx.to,
                 isContractInteraction: !!tx.data && tx.data !== '0x' && tx.to !== null,
+                transactionType,
+                contractAddress: tx.to || undefined,
             };
 
             if (tx.maxFeePerGas) {
@@ -33,18 +38,71 @@ export class TransactionDecoder {
                 decoded.accessList = tx.accessList;
             }
 
-            if (decoded.isContractInteraction && tx.data && tx.data !== '0x') {
+            // Decode function data based on transaction type
+            if (transactionType === 'contract_interaction' && tx.data && tx.data !== '0x') {
                 try {
                     decoded.decodedData = this.decodeFunctionData(tx.data);
                 } catch (error) {
                     console.warn('Could not decode function data:', error);
                 }
+            } else if (transactionType === 'eth_transfer') {
+                // For ETH transfers, provide a simple transfer object
+                decoded.decodedData = {
+                    method: 'transfer',
+                    params: []
+                };
             }
 
             return decoded;
         } catch (error) {
             throw new Error(`Failed to decode transaction: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
+    }
+
+    /**
+     * Determines the type of transaction based on its properties
+     */
+    static determineTransactionType(tx: any): 'eth_transfer' | 'contract_creation' | 'contract_interaction' | 'unknown' {
+        // Contract creation
+        if (!tx.to) {
+            return 'contract_creation';
+        }
+
+        // Check if it's a simple ETH transfer
+        if (this.isEthTransfer(tx)) {
+            return 'eth_transfer';
+        }
+
+        // Contract interaction
+        if (tx.data && tx.data !== '0x' && tx.to) {
+            return 'contract_interaction';
+        }
+
+        return 'unknown';
+    }
+
+    /**
+     * Determines if a transaction is a simple ETH transfer
+     */
+    static isEthTransfer(tx: any): boolean {
+        // Must have a recipient
+        if (!tx.to) {
+            return false;
+        }
+
+        // Must have some value (even 0 is valid)
+        if (tx.value === undefined) {
+            return false;
+        }
+
+        // Data should be empty or just '0x'
+        if (tx.data && tx.data !== '0x') {
+            return false;
+        }
+
+        // For ETH transfers, we don't need strict address validation
+        // The key indicators are: has 'to' address, has value, and no data
+        return true;
     }
 
     static decodeFunctionData(data: string): { method: string; params: unknown[] } {
@@ -127,5 +185,71 @@ export class TransactionDecoder {
             case 'eip1559': return 2;
             default: return 0;
         }
+    }
+
+    /**
+     * Validates if a raw transaction string is valid
+     */
+    static isValidRawTransaction(rawTx: string): boolean {
+        try {
+            if (!rawTx || typeof rawTx !== 'string') {
+                return false;
+            }
+
+            const txHex = (rawTx.startsWith('0x') ? rawTx : `0x${rawTx}`) as `0x${string}`;
+
+            if (!isHex(txHex)) {
+                return false;
+            }
+
+            // Try to parse it
+            parseTransaction(txHex);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Gets a human-readable description of the transaction type
+     */
+    static getTransactionDescription(transactionType: string, value: string): string {
+        const ethValue = this.formatValue(value);
+
+        switch (transactionType) {
+            case 'eth_transfer':
+                return `ETH Transfer: ${ethValue} ETH`;
+            case 'contract_creation':
+                return `Contract Creation: ${ethValue} ETH`;
+            case 'contract_interaction':
+                return `Contract Interaction: ${ethValue} ETH`;
+            default:
+                return `Unknown Transaction: ${ethValue} ETH`;
+        }
+    }
+
+    /**
+     * Determines risk level based on transaction properties
+     */
+    static getRiskLevel(transactionType: string, value: string, to?: string | null): 'low' | 'medium' | 'high' {
+        const ethValue = parseFloat(this.formatValue(value));
+
+        // High value transactions are higher risk
+        if (ethValue > 10) {
+            return 'high';
+        }
+
+        // Contract interactions are medium risk
+        if (transactionType === 'contract_interaction') {
+            return 'medium';
+        }
+
+        // Contract creation is medium risk
+        if (transactionType === 'contract_creation') {
+            return 'medium';
+        }
+
+        // ETH transfers are generally low risk
+        return 'low';
     }
 }
