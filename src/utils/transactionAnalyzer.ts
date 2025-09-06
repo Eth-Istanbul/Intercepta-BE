@@ -1,6 +1,6 @@
 import { TransactionDecoder } from './txDecoder';
 import { fetchContractAbiWithFallback } from './abi';
-import { DecodedTransaction, TransactionAnalysisResult } from './types';
+import { DecodedTransaction, TransactionAnalysisResult, DecodedTxWithAbi } from './types';
 
 export class TransactionAnalyzer {
     /**
@@ -26,7 +26,32 @@ export class TransactionAnalyzer {
             // Decode the transaction
             const decoded = TransactionDecoder.decodeRawTransaction(rawTx);
 
-            // Get ABI if it's a contract interaction
+            // For simple ETH transfers, return early
+            if (decoded.transactionType === 'eth_transfer') {
+                const riskLevel = TransactionDecoder.getRiskLevel(
+                    decoded.transactionType,
+                    decoded.value,
+                    decoded.to
+                );
+
+                const description = TransactionDecoder.getTransactionDescription(
+                    decoded.transactionType,
+                    decoded.value
+                );
+
+                return {
+                    success: true,
+                    transaction: decoded,
+                    analysis: {
+                        type: decoded.transactionType,
+                        riskLevel,
+                        description
+                    },
+                    timestamp: new Date().toISOString()
+                };
+            }
+
+            // For contract interactions, get ABI and continue with full analysis
             let abiSource: 'etherscan' | 'fallback' | 'none' = 'none';
             let contractInfo;
 
@@ -102,53 +127,32 @@ export class TransactionAnalyzer {
     }
 
     /**
-     * Analyzes a transaction from RPC payload format
+     * Creates DecodedTxWithAbi for AI prompt (internal use)
      */
-    static async analyzeRpcTransaction(payload: {
-        chainId?: string | number;
-        gas?: string;
-        value?: string;
-        from?: string;
-        to?: string;
-        data?: string;
-    }): Promise<TransactionAnalysisResult> {
+    static async createDecodedTxWithAbi(rawTx: string): Promise<DecodedTxWithAbi> {
         try {
-            // Convert RPC format to raw transaction format
-            const chainId = typeof payload.chainId === 'string' && payload.chainId.startsWith('0x')
-                ? parseInt(payload.chainId, 16)
-                : Number(payload.chainId) || 1;
+            // Validate input
+            if (!TransactionDecoder.isValidRawTransaction(rawTx)) {
+                return {
+                    success: false,
+                    transaction: {} as DecodedTransaction,
+                    analysis: {
+                        type: 'unknown',
+                        description: 'Invalid transaction format'
+                    },
+                    abi: '',
+                    timestamp: new Date().toISOString(),
+                    error: 'Invalid raw transaction format'
+                };
+            }
 
-            // Create a mock transaction object for analysis
-            const mockTx = {
-                to: payload.to || null,
-                value: payload.value ? BigInt(payload.value) : 0n,
-                data: (payload.data || '0x') as `0x${string}`,
-                gas: payload.gas ? BigInt(payload.gas) : 21000n,
-                chainId,
-                type: 'legacy' as const
-            };
-
-            // Determine transaction type
-            const transactionType = TransactionDecoder.determineTransactionType(mockTx);
-
-            const decoded: DecodedTransaction = {
-                hash: '' as `0x${string}`,
-                to: mockTx.to as `0x${string}` | null,
-                value: mockTx.value.toString(),
-                gas: mockTx.gas.toString(),
-                nonce: 0,
-                data: mockTx.data,
-                type: mockTx.type,
-                chainId: mockTx.chainId,
-                isContractCreation: !mockTx.to,
-                isContractInteraction: !!mockTx.data && mockTx.data !== '0x' && mockTx.to !== null,
-                transactionType,
-                contractAddress: mockTx.to || undefined,
-            };
+            // Decode the transaction
+            const decoded = TransactionDecoder.decodeRawTransaction(rawTx);
 
             // Get ABI if it's a contract interaction
             let abiSource: 'etherscan' | 'fallback' | 'none' = 'none';
             let contractInfo;
+            let abiString = '';
 
             if (decoded.transactionType === 'contract_interaction' && decoded.contractAddress) {
                 try {
@@ -158,6 +162,7 @@ export class TransactionAnalyzer {
                     );
 
                     abiSource = abiResult.source;
+                    abiString = abiResult.abi ? JSON.stringify(abiResult.abi) : '';
 
                     // Try to decode with ABI if available
                     if (abiResult.abi && decoded.data) {
@@ -175,22 +180,10 @@ export class TransactionAnalyzer {
                 } catch (error) {
                     console.warn('ABI fetch failed:', error);
                 }
-            } else if (decoded.transactionType === 'eth_transfer') {
-                decoded.decodedData = {
-                    method: 'transfer',
-                    params: []
-                };
             }
 
             // Update decoded transaction with ABI source
             decoded.abiSource = abiSource;
-
-            // Generate analysis
-            const riskLevel = TransactionDecoder.getRiskLevel(
-                decoded.transactionType,
-                decoded.value,
-                decoded.to
-            );
 
             const description = TransactionDecoder.getTransactionDescription(
                 decoded.transactionType,
@@ -202,16 +195,99 @@ export class TransactionAnalyzer {
                 transaction: decoded,
                 analysis: {
                     type: decoded.transactionType,
-                    riskLevel,
                     description,
                     contractInfo
+                },
+                abi: abiString,
+                timestamp: new Date().toISOString()
+            };
+
+        } catch (error) {
+            console.error('Transaction analysis error:', error);
+
+            return {
+                success: false,
+                transaction: {} as DecodedTransaction,
+                analysis: {
+                    type: 'unknown',
+                    description: 'Analysis failed'
+                },
+                abi: '',
+                timestamp: new Date().toISOString(),
+                error: error instanceof Error ? error.message : 'Unknown error'
+            };
+        }
+    }
+
+    /**
+     * Analyzes transaction directly from JSON payload
+     */
+    static async analyzeTransactionPayload(payload: {
+        chainId?: string;
+        gas?: string;
+        value?: string;
+        from?: string;
+        to?: string;
+        data?: string;
+    }): Promise<TransactionAnalysisResult> {
+        try {
+            const chainId = payload.chainId ? parseInt(payload.chainId, 16) : 1;
+
+            // Determine transaction type
+            const isEthTransfer = (!payload.data || payload.data === '0x') && payload.to;
+            const isContractInteraction = payload.data && payload.data !== '0x' && payload.to;
+
+            if (isEthTransfer) {
+                return {
+                    success: true,
+                    transaction: {} as DecodedTransaction,
+                    analysis: {
+                        type: 'eth_transfer',
+                        riskLevel: 'low',
+                        description: 'ETH Transfer'
+                    },
+                    timestamp: new Date().toISOString()
+                };
+            }
+
+            if (isContractInteraction && payload.to) {
+                // Get ABI and decode
+                const abiResult = await fetchContractAbiWithFallback(chainId, payload.to);
+
+                let decodedData;
+                if (abiResult.abi && payload.data) {
+                    decodedData = TransactionDecoder.decodeWithAbi(payload.data, abiResult.abi);
+                }
+
+                return {
+                    success: true,
+                    transaction: {} as DecodedTransaction,
+                    analysis: {
+                        type: 'contract_interaction',
+                        riskLevel: 'medium',
+                        description: 'Contract Interaction',
+                        contractInfo: {
+                            address: payload.to,
+                            abiAvailable: abiResult.abi !== null,
+                            abiSource: abiResult.source
+                        }
+                    },
+                    timestamp: new Date().toISOString()
+                };
+            }
+
+            return {
+                success: false,
+                transaction: {} as DecodedTransaction,
+                analysis: {
+                    type: 'unknown',
+                    riskLevel: 'high',
+                    description: 'Unknown transaction type'
                 },
                 timestamp: new Date().toISOString()
             };
 
         } catch (error) {
-            console.error('RPC transaction analysis error:', error);
-
             return {
                 success: false,
                 transaction: {} as DecodedTransaction,

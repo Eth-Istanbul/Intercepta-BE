@@ -181,8 +181,8 @@ router.post('/tx/rpc', async (req: Request, res: Response) => {
 
         console.log('Analyzing RPC transaction:', tx.to ? `${tx.to.slice(0, 10)}...` : 'contract creation');
 
-        // Use the new analyzer for RPC transactions
-        const result = await TransactionAnalyzer.analyzeRpcTransaction(tx);
+        // Use the new analyzer for transaction payload
+        const result = await TransactionAnalyzer.analyzeTransactionPayload(tx);
 
         if (!result.success) {
             return res.status(500).json({

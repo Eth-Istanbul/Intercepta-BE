@@ -23,6 +23,23 @@ export interface DecodedTransaction {
     abiSource?: 'etherscan' | 'fallback' | 'none';
 }
 
+export interface DecodedTxWithAbi {
+    success: boolean;
+    transaction: DecodedTransaction;
+    analysis: {
+        type: 'eth_transfer' | 'contract_creation' | 'contract_interaction' | 'unknown';
+        description: string;
+        contractInfo?: {
+            address: string;
+            abiAvailable: boolean;
+            abiSource: string;
+        };
+    };
+    abi: string;
+    timestamp: string;
+    error?: string;
+}
+
 export interface TransactionAnalysisResult {
     success: boolean;
     transaction: DecodedTransaction;
