@@ -100,74 +100,12 @@ export async function fetchContractAbiWithFallback(chainId: number, address: str
     } catch (error) {
         console.warn('ABI fetch failed:', error);
 
-        // Try fallback for common contracts
-        const fallbackAbi = getFallbackAbi(address);
-        if (fallbackAbi) {
-            return {
-                abi: fallbackAbi,
-                source: 'fallback'
-            };
-        }
-
         return {
             abi: null,
             source: 'none',
             error: error instanceof Error ? error.message : 'Unknown error'
         };
     }
-}
-
-/**
- * Provides fallback ABI for well-known contracts
- */
-function getFallbackAbi(address: string): Abi | null {
-    const lowerAddress = address.toLowerCase();
-
-    // ERC-20 Token standard ABI (minimal)
-    const erc20Abi: Abi = [
-        {
-            "inputs": [{ "name": "_owner", "type": "address" }],
-            "name": "balanceOf",
-            "outputs": [{ "name": "balance", "type": "uint256" }],
-            "stateMutability": "view",
-            "type": "function"
-        },
-        {
-            "inputs": [
-                { "name": "_to", "type": "address" },
-                { "name": "_value", "type": "uint256" }
-            ],
-            "name": "transfer",
-            "outputs": [{ "name": "", "type": "bool" }],
-            "stateMutability": "nonpayable",
-            "type": "function"
-        },
-        {
-            "inputs": [
-                { "name": "_from", "type": "address" },
-                { "name": "_to", "type": "address" },
-                { "name": "_value", "type": "uint256" }
-            ],
-            "name": "transferFrom",
-            "outputs": [{ "name": "", "type": "bool" }],
-            "stateMutability": "nonpayable",
-            "type": "function"
-        },
-        {
-            "inputs": [
-                { "name": "_spender", "type": "address" },
-                { "name": "_value", "type": "uint256" }
-            ],
-            "name": "approve",
-            "outputs": [{ "name": "", "type": "bool" }],
-            "stateMutability": "nonpayable",
-            "type": "function"
-        }
-    ];
-
-    // For now, we'll assume any contract could be ERC-20
-    // In a real implementation, you might want to check against known contract addresses
-    return erc20Abi;
 }
 
 /**
