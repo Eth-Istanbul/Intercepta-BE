@@ -22,5 +22,7 @@ app.listen(PORT, () => {
     console.log(`Ping endpoint: http://localhost:${PORT}/ping`);
     console.log(`Health endpoint: http://localhost:${PORT}/health`);
     console.log(`AI Chat endpoint: http://localhost:${PORT}/ai/chat`);
+    console.log(`Transaction decode endpoint: http://localhost:${PORT}/tx/decode`);
+    console.log(`Transaction types endpoint: http://localhost:${PORT}/tx/types`);
     console.log(`OpenAI API Key configured: ${process.env.OPENAI_API_KEY ? 'Yes' : 'No'}`);
 });
