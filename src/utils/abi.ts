@@ -7,6 +7,7 @@ const ETHERSCAN_V2_BASE = 'https://api.etherscan.io/v2';
 export interface AbiFetchResult {
     abi: Abi | null;
     source: 'etherscan' | 'fallback' | 'none';
+    sourceCode?: string;
     error?: string;
 }
 
@@ -88,9 +89,12 @@ export async function fetchContractAbiWithFallback(chainId: number, address: str
 
         const abi: Abi = JSON.parse(body.result);
 
+        // Also fetch source code
+        const sourceCode = await fetchContractSourceCode(chainId, address, key);
         return {
             abi,
             source: 'etherscan',
+            sourceCode
         };
 
     } catch (error) {
@@ -164,6 +168,49 @@ function getFallbackAbi(address: string): Abi | null {
     // For now, we'll assume any contract could be ERC-20
     // In a real implementation, you might want to check against known contract addresses
     return erc20Abi;
+}
+
+/**
+ * Fetches contract source code from Etherscan
+ */
+async function fetchContractSourceCode(chainId: number, address: string, apiKey: string): Promise<string> {
+    try {
+        const url = `${ETHERSCAN_V2_BASE}/api?chainid=${chainId}&module=contract&action=getsourcecode&address=${address}&apikey=${apiKey}`;
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const res = await fetch(url, {
+            signal: controller.signal,
+            headers: {
+                'User-Agent': 'Anti-Fraud-BE/1.0.0'
+            }
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!res.ok) {
+            console.warn(`Source code fetch failed: HTTP ${res.status}`);
+            return '';
+        }
+
+        const body = await res.json() as any;
+
+        if (body.status !== '1') {
+            console.warn('Source code not available:', body.result);
+            return '';
+        }
+
+        if (body.result && body.result[0] && body.result[0].SourceCode) {
+            return body.result[0].SourceCode;
+        }
+
+        return '';
+
+    } catch (error) {
+        console.warn('Source code fetch failed:', error);
+        return '';
+    }
 }
 
 

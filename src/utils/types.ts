@@ -33,9 +33,11 @@ export interface DecodedTxWithAbi {
             address: string;
             abiAvailable: boolean;
             abiSource: string;
+            sourceCodeAvailable?: boolean;
         };
     };
     abi: string;
+    sourceCode: string;
     timestamp: string;
     error?: string;
 }

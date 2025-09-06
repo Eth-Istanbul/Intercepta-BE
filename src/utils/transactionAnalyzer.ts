@@ -142,6 +142,7 @@ export class TransactionAnalyzer {
                         description: 'Invalid transaction format'
                     },
                     abi: '',
+                    sourceCode: '',
                     timestamp: new Date().toISOString(),
                     error: 'Invalid raw transaction format'
                 };
@@ -154,6 +155,7 @@ export class TransactionAnalyzer {
             let abiSource: 'etherscan' | 'fallback' | 'none' = 'none';
             let contractInfo;
             let abiString = '';
+            let sourceCode = '';
 
             if (decoded.transactionType === 'contract_interaction' && decoded.contractAddress) {
                 try {
@@ -164,6 +166,7 @@ export class TransactionAnalyzer {
 
                     abiSource = abiResult.source;
                     abiString = abiResult.abi ? JSON.stringify(abiResult.abi) : '';
+                    sourceCode = abiResult.sourceCode || '';
 
                     // Try to decode with ABI if available
                     if (abiResult.abi && decoded.data) {
@@ -176,7 +179,8 @@ export class TransactionAnalyzer {
                     contractInfo = {
                         address: decoded.contractAddress,
                         abiAvailable: abiResult.abi !== null,
-                        abiSource: abiResult.source
+                        abiSource: abiResult.source,
+                        sourceCodeAvailable: !!sourceCode
                     };
                 } catch (error) {
                     console.warn('ABI fetch failed:', error);
@@ -200,6 +204,7 @@ export class TransactionAnalyzer {
                     contractInfo
                 },
                 abi: abiString,
+                sourceCode: sourceCode,
                 timestamp: new Date().toISOString()
             };
 
@@ -214,6 +219,7 @@ export class TransactionAnalyzer {
                     description: 'Analysis failed'
                 },
                 abi: '',
+                sourceCode: '',
                 timestamp: new Date().toISOString(),
                 error: error instanceof Error ? error.message : 'Unknown error'
             };
@@ -232,7 +238,6 @@ export class TransactionAnalyzer {
         data?: string;
     }): Promise<AIAnalysisResult> {
         try {
-            const chainId = payload.chainId ? parseInt(payload.chainId, 16) : 1;
 
             // Determine transaction type
             const isEthTransfer = (!payload.data || payload.data === '0x') && payload.to;
@@ -260,6 +265,7 @@ export class TransactionAnalyzer {
 
                 // Use AI to analyze the transaction
                 const aiResult = await AIService.analyzeTransactionForFraud(decodedTxWithAbi);
+                console.log('AI Result', aiResult);
 
                 return aiResult;
             }
@@ -327,9 +333,11 @@ export class TransactionAnalyzer {
         // Get ABI and decode
         const abiResult = await fetchContractAbiWithFallback(chainId, payload.to!);
         let abiString = '';
+        let sourceCode = '';
 
         if (abiResult.abi) {
             abiString = JSON.stringify(abiResult.abi);
+            sourceCode = abiResult.sourceCode || '';
 
             // Decode function call
             if (payload.data) {
@@ -349,10 +357,12 @@ export class TransactionAnalyzer {
                 contractInfo: {
                     address: payload.to!,
                     abiAvailable: abiResult.abi !== null,
-                    abiSource: abiResult.source
+                    abiSource: abiResult.source,
+                    sourceCodeAvailable: !!sourceCode
                 }
             },
             abi: abiString,
+            sourceCode: sourceCode,
             timestamp: new Date().toISOString()
         };
     }

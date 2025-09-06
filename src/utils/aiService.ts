@@ -15,12 +15,11 @@ export class AIService {
     static async analyzeTransactionForFraud(decodedTxWithAbi: DecodedTxWithAbi): Promise<AIAnalysisResult> {
         try {
             const prompt = this.createAnalysisPrompt(decodedTxWithAbi);
-            console.log('prompt', prompt);
             const openai = this.getOpenAI();
 
 
             const completion = await openai.chat.completions.create({
-                model: 'gpt-4',
+                model: 'gpt-5-mini',
                 messages: [
                     {
                         role: 'system',
@@ -48,9 +47,7 @@ export class AIService {
                         role: 'user',
                         content: prompt
                     }
-                ],
-                temperature: 0.3,
-                max_tokens: 1000
+                ]
             });
 
             const response = completion.choices[0]?.message?.content;
@@ -103,7 +100,7 @@ export class AIService {
      * Creates analysis prompt for AI
      */
     private static createAnalysisPrompt(decodedTxWithAbi: DecodedTxWithAbi): string {
-        const { transaction, analysis, abi } = decodedTxWithAbi;
+        const { transaction, analysis, abi, sourceCode } = decodedTxWithAbi;
 
         // Handle BigInt serialization
         const safeStringify = (obj: any) => {
@@ -140,6 +137,12 @@ CONTRACT ABI:
 ${abi}
 ` : ''}
 
-Please analyze this transaction for potential fraud indicators and provide a comprehensive risk assessment.`;
+${sourceCode ? `
+CONTRACT SOURCE CODE:
+${sourceCode}
+` : ''}
+
+Please analyze this transaction for potential fraud indicators and provide a comprehensive risk assessment. 
+Pay special attention to the contract source code if available, as it provides the most accurate context for understanding what the contract does.`;
     }
 }
