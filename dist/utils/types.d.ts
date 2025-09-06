@@ -22,7 +22,6 @@ export interface DecodedTransaction {
     contractAddress?: string;
     abiSource?: 'etherscan' | 'fallback' | 'none';
 }
-
 export interface DecodedTxWithAbi {
     success: boolean;
     transaction: DecodedTransaction;
@@ -39,7 +38,6 @@ export interface DecodedTxWithAbi {
     timestamp: string;
     error?: string;
 }
-
 export interface TransactionAnalysisResult {
     success: boolean;
     transaction: DecodedTransaction;
@@ -56,13 +54,12 @@ export interface TransactionAnalysisResult {
     timestamp: string;
     error?: string;
 }
-
 export interface AIAnalysisResult {
     success: boolean;
     analysis: {
         type: 'eth_transfer' | 'contract_creation' | 'contract_interaction' | 'unknown';
         riskLevel: 'low' | 'medium' | 'high';
-        fraudScore: number; // 0-100
+        fraudScore: number;
         description: string;
         reasoning: string;
         warnings: string[];
@@ -73,8 +70,9 @@ export interface AIAnalysisResult {
             functionName?: string;
             functionDescription?: string;
         };
-        aiConfidence: number; // 0-100
+        aiConfidence: number;
     };
     timestamp: string;
     error?: string;
 }
+//# sourceMappingURL=types.d.ts.map
