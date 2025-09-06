@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { DecodedTxWithAbi, AIAnalysisResult } from './types';
+import fs from 'fs';
 
 export class AIService {
     private static getOpenAI(): OpenAI {
@@ -17,11 +18,155 @@ export class AIService {
             const prompt = this.createAnalysisPrompt(decodedTxWithAbi);
             const openai = this.getOpenAI();
 
+            fs.writeFileSync('prompt.txt', prompt);
 
             const completion = await openai.chat.completions.create({
                 model: 'gpt-5-mini',
+
+                tools: [
+                    {
+                        type: 'function',
+                        function: {
+                            "name": "generate_explanation_response",
+                            "description": "Generate an explanation response with risk level, fraud score, description, reasoning, warnings, function metadata, and AI confidence.",
+                            "strict": true,
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "riskLevel": {
+                                        "type": "string",
+                                        "description": "Level of risk determined by analysis",
+                                        "enum": [
+                                            "low",
+                                            "medium",
+                                            "high"
+                                        ]
+                                    },
+                                    "fraudScore": {
+                                        "type": "integer",
+                                        "description": "Fraud risk score between 0 and 100",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "description": "Brief description of the analysis result"
+                                    },
+                                    "reasoning": {
+                                        "type": "string",
+                                        "description": "Detailed analysis reasoning"
+                                    },
+                                    "warnings": {
+                                        "type": "array",
+                                        "description": "Array of warning messages relevant to the result",
+                                        "items": {
+                                            "type": "string",
+                                            "description": "A warning statement"
+                                        }
+                                    },
+                                    "functionName": {
+                                        "type": "string",
+                                        "description": "Function name if the analysis involves a contract interaction"
+                                    },
+                                    "functionDescription": {
+                                        "type": "string",
+                                        "description": "Description of what the contract function does"
+                                    },
+                                    "aiConfidence": {
+                                        "type": "integer",
+                                        "description": "AI confidence score between 0 and 100 for the explanation",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                    }
+                                },
+                                "required": [
+                                    "riskLevel",
+                                    "fraudScore",
+                                    "description",
+                                    "reasoning",
+                                    "warnings",
+                                    "functionName",
+                                    "functionDescription",
+                                    "aiConfidence"
+                                ],
+                                "additionalProperties": false
+                            }
+                        },
+
+
+
+                    }
+                ],
+                //     "name": "generate_explanation_response",
+                //     "description": "Generate an explanation response with risk level, fraud score, description, reasoning, warnings, function metadata, and AI confidence.",
+                //     "strict": true,
+                //     "parameters": {
+                //         "type": "object",
+                //         "properties": {
+                //             "riskLevel": {
+                //                 "type": "string",
+                //                 "description": "Level of risk determined by analysis",
+                //                 "enum": [
+                //                     "low",
+                //                     "medium",
+                //                     "high"
+                //                 ]
+                //             },
+                //             "fraudScore": {
+                //                 "type": "integer",
+                //                 "description": "Fraud risk score between 0 and 100",
+                //                 "minimum": 0,
+                //                 "maximum": 100
+                //             },
+                //             "description": {
+                //                 "type": "string",
+                //                 "description": "Brief description of the analysis result"
+                //             },
+                //             "reasoning": {
+                //                 "type": "string",
+                //                 "description": "Detailed analysis reasoning"
+                //             },
+                //             "warnings": {
+                //                 "type": "array",
+                //                 "description": "Array of warning messages relevant to the result",
+                //                 "items": {
+                //                     "type": "string",
+                //                     "description": "A warning statement"
+                //                 }
+                //             },
+                //             "functionName": {
+                //                 "type": "string",
+                //                 "description": "Function name if the analysis involves a contract interaction"
+                //             },
+                //             "functionDescription": {
+                //                 "type": "string",
+                //                 "description": "Description of what the contract function does"
+                //             },
+                //             "aiConfidence": {
+                //                 "type": "integer",
+                //                 "description": "AI confidence score between 0 and 100 for the explanation",
+                //                 "minimum": 0,
+                //                 "maximum": 100
+                //             }
+                //         },
+                //         "required": [
+                //             "riskLevel",
+                //             "fraudScore",
+                //             "description",
+                //             "reasoning",
+                //             "warnings",
+                //             "functionName",
+                //             "functionDescription",
+                //             "aiConfidence"
+                //         ],
+                //         "additionalProperties": false
+                //     }
+                // },
+
+
                 messages: [
                     {
+
                         role: 'system',
                         content: `You are an expert blockchain security analyst specializing in fraud detection. 
                         Analyze the provided transaction data and return a JSON response with fraud assessment.
@@ -30,18 +175,8 @@ export class AIService {
                         - High-risk function calls
                         - Unusual transaction patterns
                         - Known malicious contracts
-                        
-                        Return ONLY valid JSON in this exact format:
-                        {
-                            "riskLevel": "low|medium|high",
-                            "fraudScore": 0-100,
-                            "description": "Brief description",
-                            "reasoning": "Detailed analysis reasoning",
-                            "warnings": ["warning1", "warning2"],
-                            "functionName": "function name if contract interaction",
-                            "functionDescription": "what this function does",
-                            "aiConfidence": 0-100
-                        }`
+                        - Verified code (Unverified code is bad)
+                   `
                     },
                     {
                         role: 'user',
