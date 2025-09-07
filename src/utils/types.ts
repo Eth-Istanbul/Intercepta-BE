@@ -80,3 +80,39 @@ export interface AIAnalysisResult {
     timestamp: string;
     error?: string;
 }
+
+export interface WebsiteConnectionRequest {
+    url: string;
+    origin: string;
+    userAgent?: string;
+    timestamp: number;
+    walletType: 'metamask' | 'walletconnect' | 'coinbase' | 'other';
+    requestType: 'connect' | 'sign' | 'transaction' | 'other';
+    metadata?: {
+        title?: string;
+        favicon?: string;
+        description?: string;
+    };
+}
+
+export interface WebsiteAnalysisResult {
+    success: boolean;
+    analysis: {
+        riskLevel: 'low' | 'medium' | 'high';
+        fraudScore: number; // 0-100
+        description: string;
+        reasoning: string;
+        warnings: string[];
+        websiteInfo: {
+            url: string;
+            domain: string;
+            isKnownPhishing: boolean;
+            isOnBlacklist: boolean;
+            domainAge?: string;
+            sslStatus?: string;
+        };
+        aiConfidence: number; // 0-100
+    };
+    timestamp: string;
+    error?: string;
+}

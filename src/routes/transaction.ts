@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { TransactionDecoder } from '../utils/txDecoder';
 import { TransactionAnalyzer } from '../utils/transactionAnalyzer';
+import { WebsiteAnalyzer } from '../utils/websiteAnalyzer';
 import { fetchContractAbi } from '../utils/abi';
-import { DecodedTransaction } from '../utils/types';
+import { DecodedTransaction, WebsiteConnectionRequest } from '../utils/types';
 
 const router = Router();
 
@@ -197,6 +198,47 @@ router.post('/tx/ai-analyze', async (req: Request, res: Response) => {
         return res.status(500).json({
             success: false,
             error: 'AI analysis failed',
+            details: error instanceof Error ? error.message : 'Unknown error',
+            timestamp: new Date().toISOString()
+        });
+    }
+});
+
+router.post('/website/analyze', async (req: Request, res: Response) => {
+    try {
+        const request = req.body as WebsiteConnectionRequest;
+
+        // Input validation
+        if (!request.url) {
+            return res.status(400).json({
+                success: false,
+                error: 'URL is required',
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        if (!request.origin) {
+            return res.status(400).json({
+                success: false,
+                error: 'Origin is required',
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        console.log('Analyzing website connection:', request.url);
+
+        // Analyze website for phishing/fraud
+        const result = await WebsiteAnalyzer.analyzeWebsiteConnection(request);
+
+        console.log('Website analysis completed:', result.analysis.riskLevel, 'Score:', result.analysis.fraudScore);
+
+        return res.json(result);
+
+    } catch (error) {
+        console.error('Website analysis error:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Website analysis failed',
             details: error instanceof Error ? error.message : 'Unknown error',
             timestamp: new Date().toISOString()
         });
